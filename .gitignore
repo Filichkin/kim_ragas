@@ -186,7 +186,9 @@ mcp_data/
 .local/
 local_config.py
 config.local.py
-*.json 
+*.json
+*.csv
+*.parquet
 commands.txt
 data/
 draft/

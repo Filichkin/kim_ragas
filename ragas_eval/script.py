@@ -1,101 +1,141 @@
+"""
+Генератор тестового датасета на русском языке с использованием Ragas.
+
+Этот скрипт генерирует вопросы и ответы на русском языке из PDF документов
+с использованием библиотеки Ragas и адаптированных промптов.
+"""
+
 import asyncio
+import logging
+from pathlib import Path
 
 from langchain_community.document_loaders import (
     DirectoryLoader,
-    PDFPlumberLoader
+    PDFPlumberLoader,
 )
 from langchain_openai import ChatOpenAI
 import openai
+from loguru import logger
 from ragas.embeddings import OpenAIEmbeddings
 from ragas.llms import LangchainLLMWrapper
 from ragas.testset import TestsetGenerator
-from ragas.testset.graph import KnowledgeGraph, Node, NodeType
-from ragas.testset.synthesizers import default_query_distribution
-from ragas.testset.transforms import default_transforms, apply_transforms
-
-from config import settings
-from ragas_eval.patches import (
-    apply_themes_patch,
-    apply_question_potential_patch
+from ragas.testset.synthesizers.single_hop.specific import (
+    SingleHopSpecificQuerySynthesizer,
 )
 
+from config import settings
 
-# Применяем патчи к проблемным классам
-apply_themes_patch()
-apply_question_potential_patch()
+# Применяем патчи к проблемным классам (опционально)
+try:
+    from ragas_eval.patches import (
+        apply_themes_patch,
+        apply_question_potential_patch,
+    )
+    apply_themes_patch()
+    apply_question_potential_patch()
+    logger.info('Патчи Ragas успешно применены')
+except ImportError:
+    # Патчи опциональны; если модуль отсутствует — просто продолжаем
+    logger.warning('Патчи Ragas не найдены, продолжаем без них')
+
+# Настраиваем логирование
+logger.remove()  # Убираем стандартный обработчик
+logger.add(
+    lambda msg: print(msg, end=''),
+    format='<green>{time:YYYY-MM-DD HH:mm:ss}</green> | '
+           '<level>{level: <8}</level> | '
+           '<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - '
+           '<level>{message}</level>',
+    level='INFO',
+    colorize=True,
+)
+
+# Приглушаем шумные предупреждения парсера PDF
+logging.getLogger('pdfminer').setLevel(logging.ERROR)
 
 
 async def main():
-    """Основная функция для генерации тестового датасета."""
-    path = 'data/'
-    loader = DirectoryLoader(
-        path,
-        glob='**/*.pdf',
-        loader_cls=PDFPlumberLoader
-    )
+    """
+    Основная функция для генерации тестового датасета на русском языке.
 
+    Загружает PDF документы, создает синтезатор с русскими промптами,
+    генерирует вопросы и ответы, сохраняет результат в CSV файл.
+    """
+    logger.info('Начинаем генерацию тестового датасета на русском языке')
+
+    # 1) Загружаем PDF документы
+    data_dir = Path(settings.DATA_DIR)
+    if not data_dir.exists():
+        error_msg = f'Папка с данными не найдена: {data_dir}'
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    logger.info(f'Загружаем PDF документы из {data_dir}')
+    loader = DirectoryLoader(
+        data_dir,
+        glob='**/*.pdf',
+        loader_cls=PDFPlumberLoader,
+    )
     docs = loader.load()
 
+    if not docs:
+        error_msg = f'В {data_dir} не найдено PDF-файлов.'
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    logger.info(f'Загружено {len(docs)} документов')
+
+    # 2) Инициализируем LLM и эмбеддинги
+    if not settings.OPENAI_API_KEY:
+        error_msg = 'OPENAI_API_KEY не задан в config.settings или env.'
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    logger.info('Инициализируем LLM и эмбеддинги')
     generator_llm = LangchainLLMWrapper(
         ChatOpenAI(
             model='gpt-3.5-turbo',
-            api_key=settings.OPENAI_API_KEY
+            api_key=settings.OPENAI_API_KEY,
         )
     )
     openai_client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-    generator_embeddings = OpenAIEmbeddings(
-        client=openai_client
-    )
+    generator_embeddings = OpenAIEmbeddings(client=openai_client)
 
+    # 3) Создаем Single-hop синтезатор
+    logger.info('Создаем Single-hop синтезатор')
+    specific = SingleHopSpecificQuerySynthesizer(llm=generator_llm)
+
+    # 4) Адаптируем промпты для русского языка
+    logger.info('Адаптируем промпты для русского языка')
+    if hasattr(specific, 'adapt_prompts'):
+        prompts = await specific.adapt_prompts('russian', llm=generator_llm)
+        specific.set_prompts(**prompts)
+        logger.info('Промпты успешно адаптированы для русского языка')
+    else:
+        logger.warning('Метод adapt_prompts не найден в синтезаторе')
+
+    # 5) Настраиваем распределение (только один синтезатор)
+    query_distribution = [(specific, 1.0)]
+
+    # 6) Генерируем тестовый набор из документов
+    logger.info('Генерируем тестовый набор из документов')
     generator = TestsetGenerator(
         llm=generator_llm,
-        embedding_model=generator_embeddings
+        embedding_model=generator_embeddings,
     )
     dataset = generator.generate_with_langchain_docs(
         docs,
-        testset_size=5
+        testset_size=10,
+        query_distribution=query_distribution,
     )
-    dataset.to_pandas().to_csv('ragas_dataset.csv', index=False)
 
-    knowledge_graph = KnowledgeGraph()
-    for doc in docs:
-        knowledge_graph.nodes.append(
-            Node(
-                type=NodeType.DOCUMENT,
-                properties={
-                    'page_content': doc.page_content,
-                    'document_metadata': doc.metadata
-                }
-            )
-        )
+    # 7) Сохраняем результат
+    output_file = 'ragas_testset_singlehop_ru.csv'
+    logger.info(f'Сохраняем результат в {output_file}')
+    df = dataset.to_pandas()
+    df.to_csv(output_file, index=False)
 
-    transformer_llm = generator_llm
-    embedding_model = generator_embeddings
-
-    trans = default_transforms(
-        documents=docs,
-        llm=transformer_llm,
-        embedding_model=embedding_model
-    )
-    apply_transforms(knowledge_graph, trans)
-
-    knowledge_graph.save('knowledge_graph.json')
-    loaded_kg = KnowledgeGraph.load('knowledge_graph.json')
-    print(loaded_kg)
-
-    generator = TestsetGenerator(
-        llm=generator_llm,
-        embedding_model=embedding_model,
-        knowledge_graph=loaded_kg
-        )
-
-    query_distribution = default_query_distribution(generator_llm)
-
-    testset = generator.generate(
-        testset_size=5,
-        query_distribution=query_distribution
-        )
-    testset.to_pandas().to_csv('ragas_testset.csv', index=False)
+    logger.success(f'Готово! Записей: {len(df)}. Файл: {output_file}')
 
 
 if __name__ == '__main__':
