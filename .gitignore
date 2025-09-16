@@ -192,3 +192,4 @@ config.local.py
 commands.txt
 data/
 draft/
+output/

@@ -6,7 +6,6 @@
 """
 
 import asyncio
-import logging
 from pathlib import Path
 
 from langchain_community.document_loaders import (
@@ -15,7 +14,6 @@ from langchain_community.document_loaders import (
 )
 from langchain_openai import ChatOpenAI
 import openai
-from loguru import logger
 from ragas.embeddings import OpenAIEmbeddings
 from ragas.llms import LangchainLLMWrapper
 from ragas.testset import TestsetGenerator
@@ -24,6 +22,11 @@ from ragas.testset.synthesizers.single_hop.specific import (
 )
 
 from config import settings
+from ragas_eval.logger_config import setup_simple_logger, get_logger
+
+# Настраиваем логирование
+setup_simple_logger()
+logger = get_logger()
 
 # Применяем патчи к проблемным классам (опционально)
 try:
@@ -37,21 +40,6 @@ try:
 except ImportError:
     # Патчи опциональны; если модуль отсутствует — просто продолжаем
     logger.warning('Патчи Ragas не найдены, продолжаем без них')
-
-# Настраиваем логирование
-logger.remove()  # Убираем стандартный обработчик
-logger.add(
-    lambda msg: print(msg, end=''),
-    format='<green>{time:YYYY-MM-DD HH:mm:ss}</green> | '
-           '<level>{level: <8}</level> | '
-           '<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - '
-           '<level>{message}</level>',
-    level='INFO',
-    colorize=True,
-)
-
-# Приглушаем шумные предупреждения парсера PDF
-logging.getLogger('pdfminer').setLevel(logging.ERROR)
 
 
 async def main():
@@ -94,7 +82,7 @@ async def main():
     logger.info('Инициализируем LLM и эмбеддинги')
     generator_llm = LangchainLLMWrapper(
         ChatOpenAI(
-            model='gpt-3.5-turbo',
+            model=settings.LLM_MODEL,
             api_key=settings.OPENAI_API_KEY,
         )
     )
@@ -125,12 +113,15 @@ async def main():
     )
     dataset = generator.generate_with_langchain_docs(
         docs,
-        testset_size=10,
+        testset_size=settings.TESTSET_SIZE,
         query_distribution=query_distribution,
     )
 
     # 7) Сохраняем результат
-    output_file = 'ragas_testset_singlehop_ru.csv'
+    output_dir = Path(settings.OUTPUT_DIR)
+    output_dir.mkdir(exist_ok=True)
+    output_file = output_dir / settings.OUTPUT_FILENAME
+
     logger.info(f'Сохраняем результат в {output_file}')
     df = dataset.to_pandas()
     df.to_csv(output_file, index=False)
