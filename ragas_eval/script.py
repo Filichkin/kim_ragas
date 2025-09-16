@@ -10,38 +10,19 @@ from ragas.embeddings import OpenAIEmbeddings
 from ragas.llms import LangchainLLMWrapper
 from ragas.testset import TestsetGenerator
 from ragas.testset.graph import KnowledgeGraph, Node, NodeType
+from ragas.testset.synthesizers import default_query_distribution
 from ragas.testset.transforms import default_transforms, apply_transforms
 
 from config import settings
+from ragas_eval.patches import (
+    apply_themes_patch,
+    apply_question_potential_patch
+)
 
 
-def fix_themes_validation(original_init):
-    """Патч для исправления проблемы с кортежами в themes."""
-    def patched_init(self, *args, **kwargs):
-        # Исправляем themes если они являются кортежами
-        if 'themes' in kwargs and isinstance(kwargs['themes'], list):
-            fixed_themes = []
-            for theme in kwargs['themes']:
-                if isinstance(theme, tuple):
-                    # Берем первый элемент кортежа как строку
-                    fixed_themes.append(str(theme[0]) if theme else '')
-                else:
-                    fixed_themes.append(str(theme))
-            kwargs['themes'] = fixed_themes
-        return original_init(self, *args, **kwargs)
-    return patched_init
-
-
-# Применяем патч к ThemesPersonasInput
-try:
-    from ragas.testset.synthesizers.multi_hop.specific import (
-        ThemesPersonasInput
-    )
-    ThemesPersonasInput.__init__ = fix_themes_validation(
-        ThemesPersonasInput.__init__
-    )
-except ImportError:
-    pass
+# Применяем патчи к проблемным классам
+apply_themes_patch()
+apply_question_potential_patch()
 
 
 async def main():
@@ -101,6 +82,20 @@ async def main():
     knowledge_graph.save('knowledge_graph.json')
     loaded_kg = KnowledgeGraph.load('knowledge_graph.json')
     print(loaded_kg)
+
+    generator = TestsetGenerator(
+        llm=generator_llm,
+        embedding_model=embedding_model,
+        knowledge_graph=loaded_kg
+        )
+
+    query_distribution = default_query_distribution(generator_llm)
+
+    testset = generator.generate(
+        testset_size=5,
+        query_distribution=query_distribution
+        )
+    testset.to_pandas().to_csv('ragas_testset.csv', index=False)
 
 
 if __name__ == '__main__':
