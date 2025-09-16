@@ -1,10 +1,3 @@
-"""
-Генератор тестового датасета на русском языке с использованием Ragas.
-
-Этот скрипт генерирует вопросы и ответы на русском языке из PDF документов
-с использованием библиотеки Ragas и адаптированных промптов.
-"""
-
 import asyncio
 from pathlib import Path
 
@@ -24,11 +17,11 @@ from ragas.testset.synthesizers.single_hop.specific import (
 from config import settings
 from ragas_eval.logger_config import setup_simple_logger, get_logger
 
-# Настраиваем логирование
+
 setup_simple_logger()
 logger = get_logger()
 
-# Применяем патчи к проблемным классам (опционально)
+
 try:
     from ragas_eval.patches import (
         apply_themes_patch,
@@ -38,7 +31,6 @@ try:
     apply_question_potential_patch()
     logger.info('Патчи Ragas успешно применены')
 except ImportError:
-    # Патчи опциональны; если модуль отсутствует — просто продолжаем
     logger.warning('Патчи Ragas не найдены, продолжаем без них')
 
 
@@ -51,7 +43,6 @@ async def main():
     """
     logger.info('Начинаем генерацию тестового датасета на русском языке')
 
-    # 1) Загружаем PDF документы
     data_dir = Path(settings.DATA_DIR)
     if not data_dir.exists():
         error_msg = f'Папка с данными не найдена: {data_dir}'
@@ -73,7 +64,6 @@ async def main():
 
     logger.info(f'Загружено {len(docs)} документов')
 
-    # 2) Инициализируем LLM и эмбеддинги
     if not settings.OPENAI_API_KEY:
         error_msg = 'OPENAI_API_KEY не задан в config.settings или env.'
         logger.error(error_msg)
@@ -89,11 +79,9 @@ async def main():
     openai_client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
     generator_embeddings = OpenAIEmbeddings(client=openai_client)
 
-    # 3) Создаем Single-hop синтезатор
     logger.info('Создаем Single-hop синтезатор')
     specific = SingleHopSpecificQuerySynthesizer(llm=generator_llm)
 
-    # 4) Адаптируем промпты для русского языка
     logger.info('Адаптируем промпты для русского языка')
     if hasattr(specific, 'adapt_prompts'):
         prompts = await specific.adapt_prompts('russian', llm=generator_llm)
@@ -102,10 +90,8 @@ async def main():
     else:
         logger.warning('Метод adapt_prompts не найден в синтезаторе')
 
-    # 5) Настраиваем распределение (только один синтезатор)
     query_distribution = [(specific, 1.0)]
 
-    # 6) Генерируем тестовый набор из документов
     logger.info('Генерируем тестовый набор из документов')
     generator = TestsetGenerator(
         llm=generator_llm,
@@ -117,7 +103,6 @@ async def main():
         query_distribution=query_distribution,
     )
 
-    # 7) Сохраняем результат
     output_dir = Path(settings.OUTPUT_DIR)
     output_dir.mkdir(exist_ok=True)
     output_file = output_dir / settings.OUTPUT_FILENAME

@@ -1,11 +1,5 @@
-"""
-Конфигурация проекта RAGAS.
-
-Этот модуль содержит только необходимые настройки для генерации
-тестовых датасетов с использованием библиотеки Ragas.
-"""
-
 import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
