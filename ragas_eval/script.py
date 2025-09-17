@@ -13,6 +13,9 @@ from ragas.testset import TestsetGenerator
 from ragas.testset.synthesizers.single_hop.specific import (
     SingleHopSpecificQuerySynthesizer,
 )
+from ragas.testset.synthesizers.multi_hop.specific import (
+    MultiHopSpecificQuerySynthesizer,
+)
 
 from config import settings
 from ragas_eval.logger_config import setup_simple_logger, get_logger
@@ -38,8 +41,9 @@ async def main():
     """
     Основная функция для генерации тестового датасета на русском языке.
 
-    Загружает PDF документы, создает синтезатор с русскими промптами,
-    генерирует вопросы и ответы, сохраняет результат в CSV файл.
+    Загружает PDF документы, создает синтезаторы для разных типов вопросов
+    (single-hop и multi-hop) с русскими промптами, генерирует вопросы и ответы,
+    сохраняет результат в CSV файл.
     """
     logger.info('Начинаем генерацию тестового датасета на русском языке')
 
@@ -79,18 +83,33 @@ async def main():
     openai_client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
     generator_embeddings = OpenAIEmbeddings(client=openai_client)
 
-    logger.info('Создаем Single-hop синтезатор')
-    specific = SingleHopSpecificQuerySynthesizer(llm=generator_llm)
+    logger.info('Создаем синтезаторы для разных типов вопросов')
+    single_hop = SingleHopSpecificQuerySynthesizer(llm=generator_llm)
+    multi_hop = MultiHopSpecificQuerySynthesizer(llm=generator_llm)
 
     logger.info('Адаптируем промпты для русского языка')
-    if hasattr(specific, 'adapt_prompts'):
-        prompts = await specific.adapt_prompts('russian', llm=generator_llm)
-        specific.set_prompts(**prompts)
-        logger.info('Промпты успешно адаптированы для русского языка')
-    else:
-        logger.warning('Метод adapt_prompts не найден в синтезаторе')
+    synthesizers = [single_hop, multi_hop]
 
-    query_distribution = [(specific, 1.0)]
+    for synthesizer in synthesizers:
+        if hasattr(synthesizer, 'adapt_prompts'):
+            prompts = await synthesizer.adapt_prompts(
+                'russian', llm=generator_llm
+            )
+            synthesizer.set_prompts(**prompts)
+            logger.info(
+                f'Промпты для {synthesizer.__class__.__name__} адаптированы'
+            )
+        else:
+            logger.warning(
+                f'Метод adapt_prompts не найден в '
+                f'{synthesizer.__class__.__name__}'
+            )
+
+    # Распределение: 60% single-hop, 40% multi-hop вопросов
+    query_distribution = [
+        (single_hop, 0.6),
+        (multi_hop, 0.4),
+    ]
 
     logger.info('Генерируем тестовый набор из документов')
     generator = TestsetGenerator(
