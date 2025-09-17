@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from pathlib import Path
 
 from langchain_community.document_loaders import (
@@ -124,7 +125,12 @@ async def main():
 
     output_dir = Path(settings.OUTPUT_DIR)
     output_dir.mkdir(exist_ok=True)
-    output_file = output_dir / settings.OUTPUT_FILENAME
+
+    # Генерируем имя файла с текущей датой и временем
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    base_filename = settings.OUTPUT_FILENAME.replace('.csv', '')
+    output_filename = f'{base_filename}_{timestamp}.csv'
+    output_file = output_dir / output_filename
 
     logger.info(f'Сохраняем результат в {output_file}')
     df = dataset.to_pandas()
