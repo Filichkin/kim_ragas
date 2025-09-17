@@ -18,10 +18,11 @@ from ragas.testset.synthesizers.single_hop.specific import (
 from ragas.testset.synthesizers.multi_hop.specific import (
     MultiHopSpecificQuerySynthesizer,
 )
-from ragas.testset.transforms import default_transforms, apply_transforms
+from ragas.testset.transforms import apply_transforms
 
 from config import settings
 from ragas_eval.logger_config import setup_simple_logger, get_logger
+from ragas_eval.russian_transforms import russian_transforms
 
 
 setup_simple_logger()
@@ -174,11 +175,12 @@ async def main():
     transformer_llm = generator_llm
     embedding_model = generator_embeddings
 
-    trans = default_transforms(
+    logger.info('Создаем русские трансформы для графа знаний')
+    trans = russian_transforms(
         documents=docs,
         llm=transformer_llm,
         embedding_model=embedding_model
-        )
+    )
     apply_transforms(kg, trans)
     kg.save('knowledge_graph.json')
     loaded_kg = KnowledgeGraph.load('knowledge_graph.json')
