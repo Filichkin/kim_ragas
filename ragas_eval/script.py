@@ -1,5 +1,4 @@
 import asyncio
-from datetime import datetime
 from pathlib import Path
 
 from langchain_community.document_loaders import (
@@ -23,6 +22,7 @@ from ragas.testset.transforms import apply_transforms
 from config import settings
 from ragas_eval.logger_config import setup_simple_logger, get_logger
 from ragas_eval.russian_transforms import russian_transforms
+from ragas_eval.utils import generate_timestamp
 
 
 setup_simple_logger()
@@ -131,7 +131,7 @@ async def main():
     output_dir.mkdir(exist_ok=True)
 
     # Генерируем имя файла с текущей датой и временем
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamp = generate_timestamp()
     base_filename = settings.OUTPUT_FILENAME.replace('.csv', '')
     output_filename = f'{base_filename}_{timestamp}.csv'
     output_file = output_dir / output_filename
@@ -182,9 +182,19 @@ async def main():
         embedding_model=embedding_model
     )
     apply_transforms(kg, trans)
-    kg.save('knowledge_graph.json')
-    loaded_kg = KnowledgeGraph.load('knowledge_graph.json')
-    logger.info(loaded_kg)
+
+    # Генерируем имя файла Knowledge Graph с текущей датой и временем
+    kg_timestamp = generate_timestamp()
+    kg_filename = f'knowledge_graph_{kg_timestamp}.json'
+    kg_output_file = output_dir / kg_filename
+
+    logger.info(f'Сохраняем Knowledge Graph в {kg_output_file}')
+    kg.save(str(kg_output_file))
+
+    # Загружаем для проверки
+    loaded_kg = KnowledgeGraph.load(str(kg_output_file))
+    logger.success(f'Knowledge Graph сохранен: {kg_output_file}')
+    logger.info(f'Количество узлов в графе: {len(loaded_kg.nodes)}')
 
 if __name__ == '__main__':
     asyncio.run(main())
