@@ -11,12 +11,14 @@ import openai
 from ragas.embeddings import OpenAIEmbeddings
 from ragas.llms import LangchainLLMWrapper
 from ragas.testset import TestsetGenerator
+from ragas.testset.graph import KnowledgeGraph, Node, NodeType
 from ragas.testset.synthesizers.single_hop.specific import (
     SingleHopSpecificQuerySynthesizer,
 )
 from ragas.testset.synthesizers.multi_hop.specific import (
     MultiHopSpecificQuerySynthesizer,
 )
+from ragas.testset.transforms import default_transforms, apply_transforms
 
 from config import settings
 from ragas_eval.logger_config import setup_simple_logger, get_logger
@@ -158,6 +160,29 @@ async def main():
     df.to_csv(output_file, index=False)
     logger.success(f'Готово! Записей: {len(df)}. Файл: {output_file}')
 
+    kg = KnowledgeGraph()
+    for doc in docs:
+        kg.nodes.append(
+            Node(
+                type=NodeType.DOCUMENT,
+                properties={
+                    "page_content": doc.page_content,
+                    "document_metadata": doc.metadata
+                    }
+            )
+        )
+    transformer_llm = generator_llm
+    embedding_model = generator_embeddings
+
+    trans = default_transforms(
+        documents=docs,
+        llm=transformer_llm,
+        embedding_model=embedding_model
+        )
+    apply_transforms(kg, trans)
+    kg.save('knowledge_graph.json')
+    loaded_kg = KnowledgeGraph.load('knowledge_graph.json')
+    logger.info(loaded_kg)
 
 if __name__ == '__main__':
     asyncio.run(main())
