@@ -106,10 +106,11 @@ async def main():
                 f'{synthesizer.__class__.__name__}'
             )
 
-    # Распределение: 60% single-hop, 40% multi-hop вопросов
+    # Распределение: 70% single-hop, 30% multi-hop вопросов
+    # Уменьшаем долю multi-hop для избежания дублирования
     query_distribution = [
-        (single_hop, 0.6),
-        (multi_hop, 0.4),
+        (single_hop, 0.7),
+        (multi_hop, 0.3),
     ]
 
     logger.info('Генерируем тестовый набор из документов')
@@ -134,8 +135,27 @@ async def main():
 
     logger.info(f'Сохраняем результат в {output_file}')
     df = dataset.to_pandas()
-    df.to_csv(output_file, index=False)
 
+    # Анализируем дублирование вопросов
+    question_counts = df['user_input'].value_counts()
+    duplicates = question_counts[question_counts > 1]
+
+    if len(duplicates) > 0:
+        logger.warning(f'Найдено {len(duplicates)} дублирующихся вопросов:')
+        for question, count in duplicates.items():
+            logger.warning(
+                f'  - "{question[:50]}..." (повторяется {count} раз)'
+            )
+    else:
+        logger.info('Дублирующихся вопросов не найдено')
+
+    # Анализируем распределение по синтезаторам
+    synthesizer_counts = df['synthesizer_name'].value_counts()
+    logger.info('Распределение по синтезаторам:')
+    for synth, count in synthesizer_counts.items():
+        logger.info(f'  - {synth}: {count} вопросов')
+
+    df.to_csv(output_file, index=False)
     logger.success(f'Готово! Записей: {len(df)}. Файл: {output_file}')
 
 
